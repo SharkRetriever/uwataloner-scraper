@@ -1,7 +1,7 @@
 import java.io.{InputStreamReader, InvalidObjectException}
 import java.net.URL
 
-import com.eclipsesource.json.{Json, JsonArray, JsonValue}
+import com.eclipsesource.json.{Json, JsonArray, JsonObject, JsonValue}
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -41,26 +41,36 @@ object BuildingRoomsListMapGenerator {
         if (subjectName.isEmpty || subjectCatalogNumber.isEmpty) {
           throw new InvalidObjectException("Invalid subject name-catalog number pair detected")
         }
-        subjectsList += ((subjectName, subjectCatalogNumber))
+        if (!subjectCatalogNumber.endsWith("L") && subjectCatalogNumber.matches("[A-Za-z0-9]+"))
+          subjectsList += ((subjectName, subjectCatalogNumber))
       }
 
       subjectsList.foreach((pair: (String, String)) => {
         // GET /courses/{subject}/{catalog_number}/schedule.{format}
         // this part is incredibly slow because we need the schedule for thousands of courses, aka thousands of API accesses
-        val scheduleListUrl: URL = new URL(s"https://api.uwaterloo.ca/v2/courses/${pair._1}/${pair._2}/schedule.json?key=${KeyHolder.Key}")
+        val subject: String = pair._1
+        val catalogNumber: String = pair._2
+        val scheduleListUrl: URL = new URL(s"https://api.uwaterloo.ca/v2/courses/$subject/$catalogNumber/schedule.json?key=${KeyHolder.Key}")
+        // FOR DEBUGGING PURPOSES
+        println(s"Searching sections for $subject $catalogNumber")
         val scheduleListJson: JsonValue = Json.parse(new InputStreamReader(scheduleListUrl.openStream()))
         status = scheduleListJson.asObject().get("meta").asObject().getInt("status", -1)
-        if (status == 200) {
-          val sectionsList: JsonArray = scheduleListJson.asObject().get("data").asArray()
-          for (i <- 0 until sectionsList.size()) {
+
+        if (status != 200)
+          throw new IllegalArgumentException("Invalid status")
+
+        val sectionsList: JsonArray = scheduleListJson.asObject().get("data").asArray()
+        for (i <- 0 until sectionsList.size()) {
+          val section: String = sectionsList.get(i).asObject().getString("section", "")
+          if (!(section.isEmpty || section.startsWith("SEM"))) {
             val classesList: JsonArray = sectionsList.get(i).asObject().get("classes").asArray()
             for (j <- 0 until classesList.size()) {
-              val building: JsonValue = classesList.get(j).asObject().get("location")
-              val buildingName: String = if (building.asObject().get("building").isNull) "" else building.asObject().getString("building", "")
-              val buildingRoom: String = if (building.asObject().get("room").isNull) "" else building.asObject().getString("room", "")
+              val building: JsonObject = classesList.get(j).asObject().get("location").asObject()
+              val buildingName: String = if (building.get("building").isNull) "" else building.getString("building", "")
+              val buildingRoom: String = if (building.get("room").isNull) "" else building.getString("room", "")
               if (!(buildingName.isEmpty || buildingRoom.isEmpty)) {
                 if (!buildingRoomsListMap.contains(buildingName)) {
-                    buildingRoomsListMap.put(buildingName, mutable.Set[String]())
+                  buildingRoomsListMap.put(buildingName, mutable.Set[String]())
                 }
                 buildingRoomsListMap(buildingName) += buildingRoom
               }
@@ -68,6 +78,7 @@ object BuildingRoomsListMapGenerator {
           }
         }
       })
+
 
       val header = "fun getBuildingRoomsListMap(): HashMap<String, List<String>> {\r\n\treturn hashMapOf(\r\n"
       // buildingsListRoomListMap must be appended to a StringBuffer
@@ -88,7 +99,7 @@ object BuildingRoomsListMapGenerator {
           }
         }
         else {
-          throw new InvalidObjectException("Invalid building full name retrieval attempted")
+          pair._1 + " – " + "N/A"
         }
 
         sb.append(String.format("\t\t\"%s\" to listOf(%s),\r\n".format(buildingNameString,

@@ -4,7 +4,7 @@ import java.net.URL
 import com.eclipsesource.json.{Json, JsonArray, JsonValue}
 
 import scala.collection.mutable
-import scala.collection.mutable.{ListBuffer, Set}
+import scala.collection.mutable.ListBuffer
 
 object SubjectsListGenerator {
   def generateSubjectsListCode(): String = {
