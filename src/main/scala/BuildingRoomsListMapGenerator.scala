@@ -11,7 +11,7 @@ object BuildingRoomsListMapGenerator {
     try {
       // We first grab the list of courses, and then start to fill in a hashmap structure
       val subjectsList: ListBuffer[(String, String)] = new ListBuffer[(String, String)]
-      val buildingRoomsListMap: mutable.HashMap[String, mutable.Set[String]] = new mutable.HashMap[String, mutable.Set[String]]()
+      val buildingRoomsListMap: mutable.HashMap[String, ListBuffer[RoomDetail]] = new mutable.HashMap[String, ListBuffer[RoomDetail]]()
 
       val termUrl: URL = new URL(s"https://api.uwaterloo.ca/v2/terms/list.json?key=${KeyHolder.Key}")
       val termJson: JsonValue = Json.parse(new InputStreamReader(termUrl.openStream()))
@@ -41,7 +41,8 @@ object BuildingRoomsListMapGenerator {
         if (subjectName.isEmpty || subjectCatalogNumber.isEmpty) {
           throw new InvalidObjectException("Invalid subject name-catalog number pair detected")
         }
-        if (!subjectCatalogNumber.endsWith("L") && subjectCatalogNumber.matches("[A-Za-z0-9]+"))
+        if (// subjectName.charAt(0) <= 'C' &&
+          !subjectCatalogNumber.endsWith("L") && subjectCatalogNumber.matches("[A-Za-z0-9]+") && subjectCatalogNumber.charAt(0) <= '3')
           subjectsList += ((subjectName, subjectCatalogNumber))
       }
 
@@ -70,40 +71,35 @@ object BuildingRoomsListMapGenerator {
               val buildingRoom: String = if (building.get("room").isNull) "" else building.getString("room", "")
               if (!(buildingName.isEmpty || buildingRoom.isEmpty)) {
                 if (!buildingRoomsListMap.contains(buildingName)) {
-                  buildingRoomsListMap.put(buildingName, mutable.Set[String]())
+                  buildingRoomsListMap.put(buildingName, ListBuffer[RoomDetail]())
                 }
-                buildingRoomsListMap(buildingName) += buildingRoom
+                buildingRoomsListMap(buildingName) += new RoomDetail(buildingRoom, subject, catalogNumber)
               }
             }
           }
         }
       })
 
-
       val header = "fun getBuildingRoomsListMap(): HashMap<String, List<String>> {\r\n\treturn hashMapOf(\r\n"
       // buildingsListRoomListMap must be appended to a StringBuffer
       // e.g. one element: \t\t"MC" to listOf("1085", "4042", ...),\r\n
       val sb: StringBuffer = new StringBuffer()
-      buildingRoomsListMap.toSeq.sortBy(_._1).foreach((pair: (String, mutable.Set[String])) => {
+      buildingRoomsListMap.toSeq.sortBy(_._1).foreach((pair: (String, ListBuffer[RoomDetail])) => {
         // we want the actual building full name
-        val buildingFullNameURL: URL = new URL(s"https://api.uwaterloo.ca/v2/buildings/${pair._1}.json?key=${KeyHolder.Key}")
+        val buildingShortName: String = pair._1
+        val buildingFullNameURL: URL = new URL(s"https://api.uwaterloo.ca/v2/buildings/$buildingShortName.json?key=${KeyHolder.Key}")
         val buildingFullNameJson: JsonValue = Json.parse(new InputStreamReader(buildingFullNameURL.openStream()))
         status = buildingFullNameJson.asObject().get("meta").asObject().getInt("status", -1)
         val buildingNameString: String = if (status == 200) {
           val buildingFullName: String = buildingFullNameJson.asObject().get("data").asObject().getString("building_name", "")
-          if (buildingFullName.isEmpty) {
-            pair._1
-          }
-          else {
-            pair._1 + " – " + buildingFullName
-          }
+          buildingShortName + (if (buildingFullName.isEmpty) "" else " – " + buildingFullName)
         }
         else {
-          pair._1 + " – " + "N/A"
+          buildingShortName + " – " + "N/A"
         }
 
         sb.append(String.format("\t\t\"%s\" to listOf(%s),\r\n".format(buildingNameString,
-          pair._2.toArray.sortBy((x: String) => x).map((x: String) => "\"" + x + "\"").mkString(", "))))
+          pair._2.toArray.sortBy((x: RoomDetail) => x.roomCode).map(_.toString).distinct.mkString(", "))))
       })
       val ending = "\r\n\t)\r\n}\r\n"
 
