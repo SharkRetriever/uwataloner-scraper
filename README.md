@@ -1,4 +1,9 @@
-# UWatALoner-Scraper #
+# [DEPRECATED] UWatALoner-Scraper #
+
+This repository has been deprecated for the following reason:  
+This repository is specifically meant for UWatALoner, which is a deprecated repository. Progress on this repository may continue if more endpoints are added to the University of Waterloo Open Data API.
+
+----------
 
 ## About ##
 
